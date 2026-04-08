@@ -665,12 +665,24 @@ function extractMcpTopic(message) {
 // Cloudflare Workers Auto-Deploy
 // -----------------------------------------------------------------------
 async function deployToCloudflare(scriptName, workerCode) {
-    const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
     const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
-    if (!CF_TOKEN || !CF_ACCOUNT) {
+    // Support both API Token (Bearer) and Global API Key (X-Auth-Key + X-Auth-Email)
+    const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+    const CF_API_KEY = process.env.CLOUDFLARE_API_KEY;
+    const CF_EMAIL = process.env.CLOUDFLARE_API_EMAIL;
+
+    const hasTokenAuth = CF_API_TOKEN && CF_ACCOUNT;
+    const hasKeyAuth = CF_API_KEY && CF_EMAIL && CF_ACCOUNT;
+
+    if (!hasTokenAuth && !hasKeyAuth) {
         console.log('[CF Deploy] No Cloudflare credentials configured, skipping deploy');
         return null;
     }
+
+    // Build auth headers based on credential type
+    const authHeaders = hasTokenAuth
+        ? { Authorization: `Bearer ${CF_API_TOKEN}` }
+        : { 'X-Auth-Key': CF_API_KEY, 'X-Auth-Email': CF_EMAIL };
 
     try {
         // Build multipart form data
@@ -695,13 +707,13 @@ async function deployToCloudflare(scriptName, workerCode) {
             `--${boundary}--`,
         ].join('\r\n');
 
-        console.log(`[CF Deploy] Deploying worker "${scriptName}"...`);
+        console.log(`[CF Deploy] Deploying worker "${scriptName}" (auth: ${hasTokenAuth ? 'Bearer token' : 'Global API key'})...`);
         const deployRes = await fetch(
             `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/workers/scripts/${scriptName}`,
             {
                 method: 'PUT',
                 headers: {
-                    Authorization: `Bearer ${CF_TOKEN}`,
+                    ...authHeaders,
                     'Content-Type': `multipart/form-data; boundary=${boundary}`,
                 },
                 body,
@@ -718,8 +730,13 @@ async function deployToCloudflare(scriptName, workerCode) {
         // Get workers.dev subdomain
         const subRes = await fetch(
             `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/workers/subdomain`,
-            { headers: { Authorization: `Bearer ${CF_TOKEN}` } }
+            { headers: { ...authHeaders } }
         );
+        if (!subRes.ok) {
+            const subErr = await subRes.json().catch(() => ({}));
+            console.error(`[CF Deploy] Subdomain fetch failed (${subRes.status}):`, JSON.stringify(subErr));
+            return null;
+        }
         const subData = await subRes.json();
         const subdomain = subData?.result?.subdomain;
         if (!subdomain) {
@@ -732,7 +749,7 @@ async function deployToCloudflare(scriptName, workerCode) {
             `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/workers/scripts/${scriptName}/subdomain`,
             {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${CF_TOKEN}`, 'Content-Type': 'application/json' },
+                headers: { ...authHeaders, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: true }),
             }
         ).catch(() => { /* might already be enabled */ });
@@ -1146,7 +1163,7 @@ ${designContext}`;
             console.log('[Chat] 🔧 MCP creation request detected');
             const userMsg = getLastUserMessage(messages);
             const wantsLocal = /\b(local|manual|python|fastmcp|localhost|stdio|node\.js)\b/i.test(userMsg);
-            const hasCfCreds = process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID;
+            const hasCfCreds = process.env.CLOUDFLARE_ACCOUNT_ID && (process.env.CLOUDFLARE_API_TOKEN || (process.env.CLOUDFLARE_API_KEY && process.env.CLOUDFLARE_API_EMAIL));
 
             // Load MCP builder skill for both paths
             const mcpSkill = skills.find(s => s.name === 'mcp-builder');
