@@ -557,12 +557,41 @@ When asked to build, create, or generate a website, app, landing page, dashboard
 9. CRITICAL: Do NOT use markdown code fences (\`\`\`). ALWAYS wrap code in <file name="filename.jsx">code</file> XML tags. The preview system ONLY works with <file> tags. Using \`\`\` will break the preview.
 
 ## Design System (ALWAYS use these)
-Tailwind CSS and Google Fonts are pre-loaded in the preview environment. Use them directly.
+daisyUI (v5), Tailwind CSS, and Google Fonts are pre-loaded in the preview environment. Use them directly — no imports or installs needed.
 
-**Colors:**
-- Primary: #3B82F6 (blue-500), Secondary: #8B5CF6 (violet-500), Accent: #F59E0B (amber-500)
-- Neutral: #1F2937 (gray-800), Light Gray: #F3F4F6 (gray-100), Background: #F9FAFB (gray-50)
-- Success: #10B981 (emerald-500), Error: #EF4444 (red-500), Warning: #F59E0B (amber-500)
+**daisyUI Components (use these instead of raw Tailwind for common UI patterns):**
+- Buttons: className="btn", "btn btn-primary", "btn btn-secondary", "btn btn-accent", "btn btn-ghost", "btn btn-outline", "btn btn-lg", "btn btn-sm", "btn btn-xs"
+- Cards: className="card bg-base-100 shadow-xl" with "card-body", "card-title", "card-actions"
+- Navbar: className="navbar bg-base-100 shadow-sm"
+- Footer: className="footer bg-neutral text-neutral-content p-10"
+- Hero: className="hero min-h-screen bg-base-200" with "hero-content"
+- Modal: use <dialog className="modal"> with "modal-box", "modal-action"
+- Drawer: className="drawer" for sidebar navigation
+- Tabs: className="tabs tabs-bordered" or "tabs tabs-boxed"
+- Table: className="table" with "table-zebra" for striped rows
+- Badge: className="badge", "badge badge-primary", "badge badge-secondary"
+- Alert: className="alert", "alert alert-success", "alert alert-error"
+- Stats: className="stats shadow" with "stat", "stat-title", "stat-value", "stat-desc"
+- Avatar: className="avatar" with "w-12 rounded-full"
+- Input: className="input input-bordered w-full"
+- Select: className="select select-bordered"
+- Textarea: className="textarea textarea-bordered"
+- Checkbox/Toggle: className="checkbox" or "toggle"
+- Progress: className="progress progress-primary w-56"
+- Loading: className="loading loading-spinner loading-lg"
+- Dropdown: className="dropdown" with "dropdown-content menu"
+- Menu: className="menu bg-base-200 rounded-box"
+- Breadcrumbs: className="breadcrumbs"
+- Pagination: className="join" with "btn" items
+- Tooltip: className="tooltip" with data-tip="text"
+- Collapse/Accordion: className="collapse collapse-arrow bg-base-200"
+- Divider: className="divider"
+- Skeleton: className="skeleton h-4 w-full"
+
+**Theming:**
+- Default theme is "light". To use a different theme, add data-theme attribute to the root <div>: <div data-theme="corporate"> or "dark", "cupcake", "synthwave", "cyberpunk", "dracula", etc.
+- Use semantic color classes: text-primary, bg-primary, text-secondary, bg-secondary, text-accent, bg-accent, text-neutral, bg-neutral, bg-base-100, bg-base-200, bg-base-300
+- These colors automatically adapt to whatever theme is set
 
 **Typography:**
 - Body font: font-family 'Inter' (use class font-sans, it maps to Inter)
@@ -570,24 +599,22 @@ Tailwind CSS and Google Fonts are pre-loaded in the preview environment. Use the
 - Use responsive text sizes: text-sm, text-base, text-lg, text-xl, text-2xl, text-4xl, text-5xl
 
 **Spacing & Layout:**
-- Use Tailwind spacing: p-2, p-4, p-6, p-8, m-2, m-4, gap-4, gap-6, gap-8
-- Border radius: rounded-md (default), rounded-lg (cards), rounded-xl (large cards), rounded-full (avatars)
+- Use Tailwind spacing alongside daisyUI: p-2, p-4, p-6, p-8, m-2, m-4, gap-4, gap-6, gap-8
 - Use flex and grid layouts: flex, grid, grid-cols-2, grid-cols-3, gap-6
+- daisyUI components can be combined with any Tailwind utility: className="btn btn-primary w-full mt-4 shadow-lg"
 
 **Visual Style:**
-- Use gradients: bg-gradient-to-r, bg-gradient-to-br with from-blue-500 to-violet-500, etc.
-- Add subtle shadows: shadow-sm, shadow-md, shadow-lg, shadow-xl
+- PREFER daisyUI component classes over raw Tailwind for buttons, cards, navbars, modals, forms, tables, etc.
+- Use Tailwind utilities for custom spacing, sizing, gradients, and animations that daisyUI does not cover.
 - Add hover transitions: transition-all duration-300 hover:shadow-lg hover:-translate-y-1
 - Use backdrop blur for glassmorphism: backdrop-blur-md bg-white/80
 - Prefer: modern, clean, spacious layouts with plenty of whitespace
 
 **Important:**
-- Use Tailwind utility classes for ALL styling. Avoid writing custom CSS unless absolutely necessary.
-- If you must write CSS, put it in styles.css. But prefer Tailwind classes.
+- daisyUI, Tailwind CSS, and Google Fonts (Inter, Poppins) are already pre-loaded. Do NOT add import statements, link tags, script tags, @import, or @tailwind directives for any of them.
 - NEVER import URLs in JavaScript/JSX files (e.g. import 'https://...'). This causes build errors.
 - NEVER use @import url('...') in CSS files. This causes build errors.
 - NEVER use @tailwind directives in CSS files. They don't work in this environment.
-- Google Fonts (Inter, Poppins) and Tailwind CSS are already pre-loaded in the environment. Do NOT add import statements, link tags, script tags, @import, or @tailwind directives for them. Just use the Tailwind classes and font-family names directly in your JSX.
 - The styles.css file should ONLY contain custom CSS rules if needed. Keep it minimal or empty.
 ## Environment Rules
 - Available packages: react, react-dom, react-router-dom. You may use BrowserRouter, Routes, Route, Link, NavLink for multi-page sites.

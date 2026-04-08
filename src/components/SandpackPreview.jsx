@@ -423,6 +423,8 @@ export default function SandpackPreview({ files, template = 'react', sourceRepo 
                         customSetup={Object.keys(detectedDeps).length > 0 ? { dependencies: detectedDeps } : undefined}
                         options={{
                             externalResources: [
+                                "https://cdn.jsdelivr.net/npm/daisyui@5/themes.css",
+                                "https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css",
                                 "https://cdn.tailwindcss.com",
                                 "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@600;700;800&display=swap",
                             ],
