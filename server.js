@@ -549,9 +549,9 @@ When asked to build, create, or generate a website, app, landing page, dashboard
 
 2. Always include App.jsx as the main entry point for React projects.
 3. Use modern React with hooks and functional components.
-4. Keep each file under 200 lines. You may create multiple component files (Navbar.jsx, Footer.jsx, etc.) as needed for clean code structure.
+4. Aim for premium, high-fidelity, and feature-complete designs. Do not truncate code or "build just the core layout" unless the request is massive. Provide a full, "production-ready" experience immediately.
 5. After the code blocks, add a brief 2-3 sentence description of what you built and what the user can modify.
-6. For complex requests, build the core layout first and tell the user they can ask to modify specific sections.
+6. Use generous white space, modern typography, and refined color palettes to make the UI feel premium and state-of-the-art.
 7. When modifying existing code, output ALL files again with changes applied (not just the diff).
 8. For vanilla HTML/CSS requests, use <template>vanilla</template> before the file blocks.
 9. CRITICAL: Do NOT use markdown code fences (\`\`\`). ALWAYS wrap code in <file name="filename.jsx">code</file> XML tags. The preview system ONLY works with <file> tags. Using \`\`\` will break the preview.
@@ -1028,7 +1028,7 @@ ${designContext}`;
                         model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
                         messages: figmaMessages.map(m => ({ ...m, content: m.content ?? '' })),
                         temperature: 0.3,
-                        max_tokens: 8192,
+                        max_tokens: 16384,
                     };
                     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
@@ -1101,7 +1101,7 @@ ${skillContent}${refContent}`;
                     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
                     messages: mcpMessages.map(m => ({ ...m, content: m.content ?? '' })),
                     temperature: 0.3,
-                    max_tokens: 8192,
+                    max_tokens: 16384,
                 };
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
@@ -1148,7 +1148,7 @@ ${skillContent}${refContent}`;
                     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
                     messages: groqCodeMessages,
                     temperature: 0.4,
-                    max_tokens: 8192,
+                    max_tokens: 16384,
                 };
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
