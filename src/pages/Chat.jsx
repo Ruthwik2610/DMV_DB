@@ -358,6 +358,17 @@ export default function Chat() {
                 timestamp: Date.now() + 1,
             };
 
+            // Auto-save connector if MCP server was auto-deployed
+            if (data.autoConnector?.url && data.autoConnector?.name) {
+                try {
+                    const saved = JSON.parse(localStorage.getItem('atlas_saved_connectors') || '[]');
+                    if (!saved.some(c => c.url === data.autoConnector.url)) {
+                        saved.push({ name: data.autoConnector.name, url: data.autoConnector.url });
+                        localStorage.setItem('atlas_saved_connectors', JSON.stringify(saved));
+                    }
+                } catch { /* ignore localStorage errors */ }
+            }
+
             setThreads(prev => prev.map(t =>
                 t.id === activeThreadId
                     ? { ...t, messages: [...t.messages, assistantMessage] }

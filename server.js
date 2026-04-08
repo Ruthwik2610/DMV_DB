@@ -67,7 +67,7 @@ async function connectToMcp(url, displayName, retries = 3) {
 
             activeConnectors.get(id).status = 'connected';
             console.log(`[System] ✅ Successfully connected to ${displayName}!`);
-            return true;
+            return id;
         } catch (error) {
             console.error(`[System] ❌ Attempt ${attempt}/${retries} failed for ${displayName}:`, error.message);
 
@@ -87,7 +87,7 @@ async function connectToMcp(url, displayName, retries = 3) {
                     await sseClient.connect(sseTransport);
                     activeConnectors.get(id).status = 'connected';
                     console.log(`[System] ✅ Connected to ${displayName} via SSE fallback!`);
-                    return true;
+                    return id;
                 } catch (sseError) {
                     console.error(`[System] ❌ SSE fallback also failed for ${displayName}:`, sseError.message);
                 }
@@ -196,7 +196,7 @@ function registerSalesforceDataConnector() {
     activeConnectors.set(id, {
         name: 'Salesforce Data',
         status: 'connected',
-        transport: { close: async () => {} },
+        transport: { close: async () => { } },
         client: {
             listTools: async () => ({
                 tools: [
@@ -253,9 +253,9 @@ function registerSalesforceDataConnector() {
                             // Default: show custom objects first, then common standard objects
                             const custom = objects.filter(o => o.custom);
                             const commonStd = objects.filter(o => !o.custom && [
-                                'Account','Contact','Lead','Opportunity','Case','Task','Event',
-                                'Campaign','Contract','Order','Product2','Pricebook2','User',
-                                'Asset','Solution','ContentDocument','Report','Dashboard',
+                                'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Task', 'Event',
+                                'Campaign', 'Contract', 'Order', 'Product2', 'Pricebook2', 'User',
+                                'Asset', 'Solution', 'ContentDocument', 'Report', 'Dashboard',
                             ].includes(o.name));
                             objects = [...custom, ...commonStd];
                         }
@@ -355,23 +355,23 @@ function buildTransportFromUrl(rawUrl) {
 // GET /api/connectors
 app.get('/api/connectors', async (req, res) => {
     try {
-    const list = [];
-    for (const [id, c] of activeConnectors.entries()) {
-        let tools = [];
-        if (c.status === 'connected') {
-            try {
-                const response = await c.client.listTools();
-                tools = response.tools.map(t => ({
-                    name: t.name,
-                    description: (t.description || '').slice(0, 150),
-                }));
-            } catch (e) {
-                console.error(`[MCP] listTools failed for ${c.name}:`, e.message);
+        const list = [];
+        for (const [id, c] of activeConnectors.entries()) {
+            let tools = [];
+            if (c.status === 'connected') {
+                try {
+                    const response = await c.client.listTools();
+                    tools = response.tools.map(t => ({
+                        name: t.name,
+                        description: (t.description || '').slice(0, 150),
+                    }));
+                } catch (e) {
+                    console.error(`[MCP] listTools failed for ${c.name}:`, e.message);
+                }
             }
+            list.push({ id, name: c.name, status: c.status, tools });
         }
-        list.push({ id, name: c.name, status: c.status, tools });
-    }
-    res.json(list);
+        res.json(list);
     } catch (e) {
         console.error('[API] /connectors error:', e.message);
         res.status(500).json({ error: e.message });
@@ -549,9 +549,9 @@ When asked to build, create, or generate a website, app, landing page, dashboard
 
 2. Always include App.jsx as the main entry point for React projects.
 3. Use modern React with hooks and functional components.
-4. Aim for premium, high-fidelity, and feature-complete designs. Do not truncate code or "build just the core layout" unless the request is massive. Provide a full, "production-ready" experience immediately.
+4. Keep each file under 200 lines. You may create multiple component files (Navbar.jsx, Footer.jsx, etc.) as needed for clean code structure.
 5. After the code blocks, add a brief 2-3 sentence description of what you built and what the user can modify.
-6. Use generous white space, modern typography, and refined color palettes to make the UI feel premium and state-of-the-art.
+6. For complex requests, build the core layout first and tell the user they can ask to modify specific sections.
 7. When modifying existing code, output ALL files again with changes applied (not just the diff).
 8. For vanilla HTML/CSS requests, use <template>vanilla</template> before the file blocks.
 9. CRITICAL: Do NOT use markdown code fences (\`\`\`). ALWAYS wrap code in <file name="filename.jsx">code</file> XML tags. The preview system ONLY works with <file> tags. Using \`\`\` will break the preview.
@@ -653,6 +653,97 @@ function getLastUserMessage(messages) {
 function getLastUserMessageRaw(messages) {
     const msg = [...messages].reverse().find(m => m.role === 'user');
     return msg ? (msg.content || '') : '';
+}
+
+function extractMcpTopic(message) {
+    const match = message.match(/(?:for|about|to|with)\s+(\w+(?:\s+\w+)?)/i);
+    if (match) return match[1].toLowerCase().replace(/\s+/g, '-').slice(0, 20);
+    return 'custom';
+}
+
+// -----------------------------------------------------------------------
+// Cloudflare Workers Auto-Deploy
+// -----------------------------------------------------------------------
+async function deployToCloudflare(scriptName, workerCode) {
+    const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+    const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
+    if (!CF_TOKEN || !CF_ACCOUNT) {
+        console.log('[CF Deploy] No Cloudflare credentials configured, skipping deploy');
+        return null;
+    }
+
+    try {
+        // Build multipart form data
+        const boundary = '----CFWorkerBoundary' + Date.now();
+        const metadataJson = JSON.stringify({
+            main_module: 'worker.js',
+            compatibility_date: '2024-12-01',
+            compatibility_flags: ['nodejs_compat'],
+        });
+
+        const body = [
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="metadata"; filename="metadata.json"',
+            'Content-Type: application/json',
+            '',
+            metadataJson,
+            `--${boundary}`,
+            'Content-Disposition: form-data; name="worker.js"; filename="worker.js"',
+            'Content-Type: application/javascript+module',
+            '',
+            workerCode,
+            `--${boundary}--`,
+        ].join('\r\n');
+
+        console.log(`[CF Deploy] Deploying worker "${scriptName}"...`);
+        const deployRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/workers/scripts/${scriptName}`,
+            {
+                method: 'PUT',
+                headers: {
+                    Authorization: `Bearer ${CF_TOKEN}`,
+                    'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                },
+                body,
+            }
+        );
+
+        if (!deployRes.ok) {
+            const errData = await deployRes.json().catch(() => ({}));
+            console.error(`[CF Deploy] Deploy failed (${deployRes.status}):`, JSON.stringify(errData));
+            return null;
+        }
+        console.log(`[CF Deploy] ✅ Worker "${scriptName}" deployed successfully`);
+
+        // Get workers.dev subdomain
+        const subRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/workers/subdomain`,
+            { headers: { Authorization: `Bearer ${CF_TOKEN}` } }
+        );
+        const subData = await subRes.json();
+        const subdomain = subData?.result?.subdomain;
+        if (!subdomain) {
+            console.error('[CF Deploy] Could not get workers.dev subdomain');
+            return null;
+        }
+
+        // Enable workers.dev route
+        await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/workers/scripts/${scriptName}/subdomain`,
+            {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${CF_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: true }),
+            }
+        ).catch(() => { /* might already be enabled */ });
+
+        const url = `https://${scriptName}.${subdomain}.workers.dev`;
+        console.log(`[CF Deploy] 🌐 Live at: ${url}`);
+        return url;
+    } catch (err) {
+        console.error('[CF Deploy] Error:', err.message);
+        return null;
+    }
 }
 
 function isCodeGenerationRequest(messages) {
@@ -1028,7 +1119,7 @@ ${designContext}`;
                         model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
                         messages: figmaMessages.map(m => ({ ...m, content: m.content ?? '' })),
                         temperature: 0.3,
-                        max_tokens: 16384,
+                        max_tokens: 8192,
                     };
                     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
@@ -1053,9 +1144,13 @@ ${designContext}`;
         // ═══════════════════════════════════════════════════
         if (isMcpReq && !isCodeGen) {
             console.log('[Chat] 🔧 MCP creation request detected');
+            const userMsg = getLastUserMessage(messages);
+            const wantsLocal = /\b(local|manual|python|fastmcp|localhost|stdio|node\.js)\b/i.test(userMsg);
+            const hasCfCreds = process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID;
+
+            // Load MCP builder skill for both paths
             const mcpSkill = skills.find(s => s.name === 'mcp-builder');
             const skillContent = mcpSkill ? `\n\n## MCP Builder Skill\n${mcpSkill.content}` : '';
-
             let refContent = '';
             if (mcpSkill) {
                 const refs = loadSkillReferences(mcpSkill, ['python_mcp_server.md', 'node_mcp_server.md', 'mcp_best_practices.md']);
@@ -1064,7 +1159,170 @@ ${designContext}`;
                 }
             }
 
-            const mcpSystemPrompt = `You are Atlas, an expert MCP (Model Context Protocol) server builder.
+            if (!wantsLocal && hasCfCreds) {
+                // ── Cloudflare Workers Auto-Deploy Path ──
+                console.log('[Chat] 🌐 Using Cloudflare Workers auto-deploy path');
+
+                const cfMcpSystemPrompt = `You are Atlas, an expert MCP server builder for Cloudflare Workers.
+Generate a SINGLE JavaScript file (worker.js) that runs as a Cloudflare Worker and implements the MCP protocol.
+
+## Output Format
+Output the code in a single XML file tag:
+<file name="worker.js">
+// complete worker code here
+</file>
+
+After the code, briefly describe what tools the server provides and how to use them.
+
+## MCP StreamableHTTP Protocol Implementation
+The worker MUST implement these JSON-RPC 2.0 methods on POST /mcp:
+
+1. "initialize" → return:
+   { jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "...", version: "1.0.0" } } }
+
+2. "notifications/initialized" → return:
+   { jsonrpc: "2.0", id, result: {} }
+
+3. "tools/list" → return:
+   { jsonrpc: "2.0", id, result: { tools: [ { name, description, inputSchema: { type: "object", properties: {...}, required: [...] } } ] } }
+
+4. "tools/call" → execute the tool and return:
+   { jsonrpc: "2.0", id, result: { content: [ { type: "text", text: "result string" } ] } }
+
+## Required Worker Structure
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      });
+    }
+
+    // MCP endpoint
+    if (url.pathname === '/mcp' && request.method === 'POST') {
+      let body;
+      try { body = await request.json(); } catch {
+        return jsonResponse({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+      }
+      const { method, id, params } = body;
+      let result;
+
+      if (method === 'initialize') {
+        result = { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "...", version: "1.0.0" } };
+      } else if (method === 'notifications/initialized') {
+        return new Response('', { status: 204 });
+      } else if (method === 'tools/list') {
+        result = { tools: [ /* tool definitions */ ] };
+      } else if (method === 'tools/call') {
+        // Route to appropriate tool handler
+        try {
+          result = await handleToolCall(params.name, params.arguments || {}, env);
+        } catch (err) {
+          return jsonResponse({ jsonrpc: "2.0", id, error: { code: -32000, message: err.message } });
+        }
+      } else {
+        return jsonResponse({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+      }
+      return jsonResponse({ jsonrpc: "2.0", id, result });
+    }
+
+    return new Response('MCP Server is running. Connect to /mcp', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+  }
+};
+
+function jsonResponse(data) {
+  return new Response(JSON.stringify(data), {
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+  });
+}
+
+## Critical Rules
+- MUST be a SINGLE self-contained file — NO imports, NO require, NO npm packages
+- Use the native fetch() API for any external HTTP calls (available in Workers)
+- Use env.* to access any secrets or bindings (passed via the env parameter)
+- Handle errors gracefully — return JSON-RPC error responses, never throw unhandled
+- Implement CORS headers on ALL responses
+- The /mcp POST endpoint is the ONLY required endpoint
+- Generate REAL, USEFUL tools based on what the user asked for
+- Each tool must have proper inputSchema with JSON Schema format
+${skillContent}${refContent}`;
+
+                const mcpMessages = [
+                    { role: 'system', content: cfMcpSystemPrompt },
+                    ...messages.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) })),
+                ];
+
+                let msg = await callGemini(mcpMessages, 16384);
+                if (!msg) {
+                    const groqBody = {
+                        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+                        messages: mcpMessages.map(m => ({ ...m, content: m.content ?? '' })),
+                        temperature: 0.3,
+                        max_tokens: 8192,
+                    };
+                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+                        body: JSON.stringify(groqBody),
+                    });
+                    if (groqRes.ok) {
+                        const data = await groqRes.json();
+                        if (data.choices?.length) msg = data.choices[0].message;
+                    }
+                }
+                if (!msg) return res.json({ role: 'assistant', content: "I'm having trouble generating the MCP server code. Please try again." });
+
+                // Parse worker.js from LLM response — try <file> tags first, then markdown fences
+                let workerMatch = msg.content.match(/<file\s+name=["']worker\.js["']>\s*([\s\S]*?)\s*<\/file>/);
+                if (!workerMatch) {
+                    // Fallback: try ```javascript or ```js code fence
+                    workerMatch = msg.content.match(/```(?:javascript|js)\s*\n([\s\S]*?)```/);
+                }
+                if (workerMatch) {
+                    const workerCode = workerMatch[1].trim();
+                    const topic = extractMcpTopic(userMsg);
+                    const scriptName = `atlas-mcp-${topic}-${Date.now()}`.replace(/[^a-z0-9-]/g, '-').slice(0, 63);
+
+                    const deployedUrl = await deployToCloudflare(scriptName, workerCode);
+                    if (deployedUrl) {
+                        const mcpUrl = `${deployedUrl}/mcp`;
+                        // Auto-connect to the deployed MCP server
+                        let connectorId = null;
+                        try {
+                            connectorId = await connectToMcp(mcpUrl, scriptName);
+                        } catch (connErr) {
+                            console.error('[CF Deploy] Auto-connect failed:', connErr.message);
+                        }
+
+                        if (connectorId) {
+                            msg.content += `\n\n---\n**Deployed & Connected!**\nYour MCP server is live at: ${mcpUrl}\nIt has been automatically connected to Atlas. You can see it in the Connectors dropdown.`;
+                        } else {
+                            msg.content += `\n\n---\n**Deployed!**\nYour MCP server is live at: ${mcpUrl}\nAuto-connect could not complete. You can manually add it in the Connectors dropdown using the URL above.`;
+                        }
+
+                        return res.json({
+                            role: 'assistant',
+                            content: msg.content,
+                            autoConnector: connectorId ? { name: scriptName, url: mcpUrl, id: connectorId } : undefined,
+                        });
+                    } else {
+                        msg.content += '\n\n---\n**Note:** Auto-deploy to Cloudflare Workers failed. You can copy this code and deploy it manually, or ask me to create a local Python/Node version instead.';
+                    }
+                }
+                return res.json({ role: 'assistant', content: msg.content });
+
+            } else {
+                // ── Local/Manual Python/Node MCP Path (original) ──
+                console.log('[Chat] 📦 Using local MCP generation path');
+
+                const mcpSystemPrompt = `You are Atlas, an expert MCP (Model Context Protocol) server builder.
 When the user asks to create an MCP server, generate complete, working code.
 
 ## Output Format
@@ -1090,31 +1348,32 @@ Or for TypeScript:
   3. That they can add it as a connector in the Connectors dropdown
 ${skillContent}${refContent}`;
 
-            const mcpMessages = [
-                { role: 'system', content: mcpSystemPrompt },
-                ...messages.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) })),
-            ];
+                const mcpMessages = [
+                    { role: 'system', content: mcpSystemPrompt },
+                    ...messages.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) })),
+                ];
 
-            let msg = await callGemini(mcpMessages, 16384);
-            if (!msg) {
-                const groqBody = {
-                    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-                    messages: mcpMessages.map(m => ({ ...m, content: m.content ?? '' })),
-                    temperature: 0.3,
-                    max_tokens: 16384,
-                };
-                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                    body: JSON.stringify(groqBody),
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.choices?.length) msg = data.choices[0].message;
+                let msg = await callGemini(mcpMessages, 16384);
+                if (!msg) {
+                    const groqBody = {
+                        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+                        messages: mcpMessages.map(m => ({ ...m, content: m.content ?? '' })),
+                        temperature: 0.3,
+                        max_tokens: 8192,
+                    };
+                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+                        body: JSON.stringify(groqBody),
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.choices?.length) msg = data.choices[0].message;
+                    }
                 }
+                if (!msg) return res.json({ role: 'assistant', content: "I'm having trouble generating the MCP server code. Please try again." });
+                return res.json({ role: 'assistant', content: msg.content });
             }
-            if (!msg) return res.json({ role: 'assistant', content: "I'm having trouble generating the MCP server code. Please try again." });
-            return res.json({ role: 'assistant', content: msg.content });
         }
 
         if (isCodeGen) {
@@ -1148,7 +1407,7 @@ ${skillContent}${refContent}`;
                     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
                     messages: groqCodeMessages,
                     temperature: 0.4,
-                    max_tokens: 16384,
+                    max_tokens: 8192,
                 };
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
