@@ -617,11 +617,11 @@ daisyUI (v5), Tailwind CSS, and Google Fonts are pre-loaded in the preview envir
 - NEVER use @tailwind directives in CSS files. They don't work in this environment.
 - The styles.css file should ONLY contain custom CSS rules if needed. Keep it minimal or empty.
 ## Environment Rules
-- Available packages: react, react-dom, react-router-dom. You may use BrowserRouter, Routes, Route, Link, NavLink for multi-page sites.
-- For icons, use inline SVGs. Do NOT import icon libraries (lucide-react, react-icons, etc.).
-- For animations, use Tailwind classes (transition-all, duration-300, hover:-translate-y-1) or CSS keyframes. Do NOT import framer-motion.
-- Create separate files for components and pages (e.g. components/Navbar.jsx, pages/Home.jsx). Use relative imports (import Navbar from './components/Navbar').
-- Use HashRouter instead of BrowserRouter for better preview compatibility.`;
+- Available packages: react, react-dom, react-router-dom, lucide-react, framer-motion, react-icons, axios, @headlessui/react, clsx. These are auto-detected from your imports — no install needed.
+- For icons, prefer lucide-react (import { Icon } from 'lucide-react'). You may also use react-icons.
+- For animations, you can use framer-motion (import { motion } from 'framer-motion') or Tailwind classes (transition-all, duration-300, hover:-translate-y-1).
+- For multi-page sites, use react-router-dom with HashRouter (not BrowserRouter) for preview compatibility.
+- Create separate files for components and pages (e.g. components/Navbar.jsx, pages/Home.jsx). Use relative imports (import Navbar from './components/Navbar').`;
 
 // -----------------------------------------------------------------------
 // Intent Detection
