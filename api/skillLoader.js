@@ -92,7 +92,12 @@ export function matchSkill(userMessage, skills) {
     }
 
     // Frontend design (when specifically asking for design quality)
-    if (text.match(/\b(design|beautiful|stunning|modern|professional|polished)\b/) && text.match(/\b(website|page|ui|interface|app)\b/)) {
+    if (text.match(/\b(design|beautiful|stunning|modern|professional|polished|sleek|elegant|clean|minimal)\b/) && text.match(/\b(website|page|ui|interface|app|dashboard|landing|portfolio)\b/)) {
+        return skills.find(s => s.name === 'frontend-design') || null;
+    }
+
+    // Generic website/app creation — use frontend-design for better output quality
+    if (text.match(/\b(build|create|generate|make|code|develop)\b/) && text.match(/\b(website|webpage|landing\s*page|app|application|dashboard|portfolio|blog|ecommerce|store|homepage|page|ui|component|layout|form|interface|template)\b/)) {
         return skills.find(s => s.name === 'frontend-design') || null;
     }
 
