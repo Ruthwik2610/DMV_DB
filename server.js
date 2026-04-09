@@ -618,7 +618,7 @@ daisyUI (v5), Tailwind CSS, and Google Fonts are pre-loaded in the preview envir
 - The styles.css file should ONLY contain custom CSS rules if needed. Keep it minimal or empty.
 ## Environment Rules
 - Available packages: react, react-dom, react-router-dom, lucide-react, framer-motion, react-icons, axios, @headlessui/react, clsx. These are auto-detected from your imports — no install needed.
-- For icons, prefer lucide-react (import { Icon } from 'lucide-react'). You may also use react-icons.
+- For icons, prefer lucide-react (import { Icon } from 'lucide-react'). IMPORTANT: lucide-react does NOT have brand/social icons (no Facebook, Twitter, Instagram, Github, etc). For social/brand icons use react-icons/fa (import { FaFacebook, FaTwitter } from 'react-icons/fa'). You may freely mix both libraries.
 - For animations, you can use framer-motion (import { motion } from 'framer-motion') or Tailwind classes (transition-all, duration-300, hover:-translate-y-1).
 - For multi-page sites, use react-router-dom with HashRouter (not BrowserRouter) for preview compatibility.
 - Create separate files for components and pages (e.g. components/Navbar.jsx, pages/Home.jsx). Use relative imports (import Navbar from './components/Navbar').`;

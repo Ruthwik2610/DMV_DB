@@ -54,7 +54,7 @@ export default function SandpackPreview({ files, template = 'react', sourceRepo 
     const KNOWN_PACKAGES = {
         'react-router-dom': 'latest',
         'react-router': 'latest',
-        'lucide-react': 'latest',
+        'lucide-react': '0.460.0',
         'framer-motion': 'latest',
         'react-icons': 'latest',
         'axios': 'latest',
