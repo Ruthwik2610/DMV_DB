@@ -550,8 +550,9 @@ When asked to build, create, or generate a website, app, landing page, dashboard
 2. Always include App.jsx as the main entry point for React projects.
 3. Use modern React with hooks and functional components.
 4. Keep each file under 200 lines. You may create multiple component files (Navbar.jsx, Footer.jsx, etc.) as needed for clean code structure.
-5. CRITICAL: Do NOT write any text before or after the <file> tags. Your ENTIRE response must be ONLY <file> tags with code. No descriptions, no explanations, no comments outside of file tags. The preview sandbox renders everything — extra text clutters the chat.
-6. When modifying existing code, output ALL files again with changes applied (not just the diff).
+5. After the code blocks, add a brief 2-3 sentence description of what you built and what the user can modify.
+6. For complex requests, build the core layout first and tell the user they can ask to modify specific sections.
+7. When modifying existing code, output ALL files again with changes applied (not just the diff).
 7. For vanilla HTML/CSS requests, use <template>vanilla</template> before the file blocks.
 8. CRITICAL: Do NOT use markdown code fences (\`\`\`). ALWAYS wrap code in <file name="filename.jsx">code</file> XML tags. The preview system ONLY works with <file> tags. Using \`\`\` will break the preview.
 

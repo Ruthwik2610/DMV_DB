@@ -31,8 +31,9 @@ function extractCodeFences(content) {
 function parseMarkdownFences(content) {
     const files = {};
     let match;
-    const regex = new RegExp(FENCED_BLOCK_REGEX.source, 'g');
 
+    // First pass: fences with explicit filename comments (// App.jsx)
+    const regex = new RegExp(FENCED_BLOCK_REGEX.source, 'g');
     while ((match = regex.exec(content)) !== null) {
         let filename = match[1].trim();
         const code = match[2].trim();
@@ -40,6 +41,40 @@ function parseMarkdownFences(content) {
         if (!filename) continue;
         const key = filename.startsWith('/') ? filename : `/${filename}`;
         files[key] = code;
+    }
+
+    // Second pass: if no files found yet, try to infer filenames from language + content
+    // This catches ```jsx\nimport React...\ncode``` without a filename comment
+    if (Object.keys(files).length === 0) {
+        const allFences = /```([\w-]*)\s*\n([\s\S]*?)```/g;
+        const LANG_TO_EXT = { jsx: '.jsx', tsx: '.tsx', javascript: '.js', js: '.js', css: '.css', html: '.html', json: '.json' };
+        const FRONTEND_LANGS = ['jsx', 'tsx', 'javascript', 'js', 'css', 'html'];
+        let fenceIdx = 0;
+        let fenceMatch;
+        const fenceBlocks = [];
+
+        while ((fenceMatch = allFences.exec(content)) !== null) {
+            fenceBlocks.push({ lang: fenceMatch[1] || '', code: fenceMatch[2].trim() });
+        }
+
+        // Only convert to Sandpack files if at least one block looks like frontend code
+        const hasFrontend = fenceBlocks.some(b => FRONTEND_LANGS.includes(b.lang) || /\bimport\b.*\breact\b/i.test(b.code) || /\bexport\s+default\b/.test(b.code));
+        if (hasFrontend && fenceBlocks.length > 0) {
+            for (const block of fenceBlocks) {
+                const ext = LANG_TO_EXT[block.lang] || '.js';
+                // Try to detect filename from first-line import or export
+                let filename;
+                if (fenceIdx === 0 && (ext === '.jsx' || ext === '.js' || ext === '.tsx')) {
+                    filename = `/App${ext}`;
+                } else if (ext === '.css') {
+                    filename = '/styles.css';
+                } else {
+                    filename = `/Component${fenceIdx}${ext}`;
+                }
+                files[filename] = block.code;
+                fenceIdx++;
+            }
+        }
     }
 
     let remainingText = content.replace(new RegExp(FENCED_BLOCK_REGEX.source, 'g'), '').trim();
