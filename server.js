@@ -862,6 +862,108 @@ async function callGemini(messages, maxTokens = 16384, images = []) {
 }
 
 // -----------------------------------------------------------------------
+// Gemini with Function Calling — fallback when Groq is unavailable
+// -----------------------------------------------------------------------
+function openaiToolsToGemini(openaiTools) {
+    return [{
+        functionDeclarations: openaiTools.map(t => ({
+            name: t.function.name,
+            description: t.function.description || '',
+            parameters: t.function.parameters || { type: 'object', properties: {} },
+        })),
+    }];
+}
+
+async function callGeminiWithTools(messages, tools, maxTokens = 8192) {
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return null;
+
+    try {
+        const systemMsg = messages.find(m => m.role === 'system');
+        const contents = [];
+        for (const m of messages) {
+            if (m.role === 'system') continue;
+            if (m.role === 'tool') {
+                // Convert OpenAI tool result → Gemini functionResponse
+                contents.push({
+                    role: 'user',
+                    parts: [{ functionResponse: { name: m.name, response: { result: m.content } } }],
+                });
+            } else if (m.role === 'assistant' && m.tool_calls?.length) {
+                // Convert OpenAI-style assistant tool_calls → Gemini functionCall parts
+                contents.push({
+                    role: 'model',
+                    parts: m.tool_calls.map(tc => ({
+                        functionCall: { name: tc.function.name, args: JSON.parse(tc.function.arguments || '{}') },
+                    })),
+                });
+            } else {
+                contents.push({
+                    role: m.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: m.content || '' }],
+                });
+            }
+        }
+
+        const body = {
+            contents,
+            generationConfig: { maxOutputTokens: maxTokens, temperature: 0.15 },
+        };
+        if (systemMsg) {
+            body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+        }
+        if (tools && tools.length > 0) {
+            body.tools = openaiToolsToGemini(tools);
+        }
+
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        );
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            console.error(`[Gemini-Tools] HTTP ${response.status}:`, JSON.stringify(errData));
+            return null;
+        }
+
+        const data = await response.json();
+        const candidate = data?.candidates?.[0];
+        if (!candidate?.content?.parts?.length) {
+            console.error('[Gemini-Tools] No parts in response:', JSON.stringify(data));
+            return null;
+        }
+
+        const parts = candidate.content.parts;
+        const functionCalls = parts.filter(p => p.functionCall);
+        if (functionCalls.length > 0) {
+            // Convert Gemini functionCall → OpenAI-style tool_calls
+            return {
+                role: 'assistant',
+                content: null,
+                tool_calls: functionCalls.map((p, i) => ({
+                    id: `gemini_${Date.now()}_${i}`,
+                    type: 'function',
+                    function: {
+                        name: p.functionCall.name,
+                        arguments: JSON.stringify(p.functionCall.args || {}),
+                    },
+                })),
+            };
+        }
+
+        const text = parts.filter(p => p.text).map(p => p.text).join('');
+        if (!text) {
+            console.error('[Gemini-Tools] No text or functionCall in response');
+            return null;
+        }
+        return { role: 'assistant', content: text };
+    } catch (error) {
+        console.error('[Gemini-Tools] Call failed:', error.message);
+        return null;
+    }
+}
+
+// -----------------------------------------------------------------------
 // Context compression
 // -----------------------------------------------------------------------
 function compressCodeContext(messages, codeSnapshot) {
@@ -1418,7 +1520,7 @@ ${skillContent}${refContent}`;
             ];
             let msg = await callGemini(geminiMessages, 16384, images || []);
             if (!msg) {
-                console.log('[Chat] Gemini unavailable, falling back to Groq');
+                console.log('[Chat] Gemini unavailable, falling back to Groq for code gen');
                 const groqCodeMessages = geminiMessages.map(m => ({ ...m, content: m.content ?? '' }));
                 const groqBody = {
                     model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
@@ -1426,17 +1528,29 @@ ${skillContent}${refContent}`;
                     temperature: 0.4,
                     max_tokens: 8192,
                 };
-                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                    body: JSON.stringify(groqBody),
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.choices?.length) msg = data.choices[0].message;
+                try {
+                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+                        body: JSON.stringify(groqBody),
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.choices?.length) {
+                            msg = data.choices[0].message;
+                        } else {
+                            console.error('[Chat] Groq code-gen returned no choices:', JSON.stringify(data));
+                        }
+                    } else {
+                        const errData = await response.json().catch(() => ({}));
+                        console.error(`[Chat] Groq code-gen fallback HTTP ${response.status}:`, JSON.stringify(errData));
+                    }
+                } catch (groqErr) {
+                    console.error('[Chat] Groq code-gen fallback failed:', groqErr.message);
                 }
             }
             if (!msg) {
+                console.error('[Chat] ❌ Both Gemini and Groq failed for code generation. GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY, 'GROQ_API_KEY set:', !!process.env.GROQ_API_KEY);
                 return res.json({ role: 'assistant', content: "I'm having trouble generating code right now. Please try again in a moment." });
             }
             return res.json({ role: 'assistant', content: msg.content });
@@ -1525,6 +1639,12 @@ ${skillContent}${refContent}`;
         const MAX_TOOL_ROUNDS = 8;
         let round = 0;
         let msg = await callGroq(true);
+        let usingGemini = false;
+        if (!msg) {
+            console.log('[Chat] Groq unavailable for data query, falling back to Gemini with tools');
+            msg = await callGeminiWithTools(messagesToLlm, availableTools.length > 0 ? availableTools : []);
+            if (msg) usingGemini = true;
+        }
         if (!msg) {
             return res.json({ role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment." });
         }
@@ -1553,8 +1673,13 @@ ${skillContent}${refContent}`;
                 msg = await callGroq(false);
             }
             if (!msg) {
+                console.log(`[Chat] Groq failed mid-loop (round ${round}), falling back to Gemini`);
+                msg = await callGeminiWithTools(messagesToLlm, isLastAllowedRound ? [] : availableTools);
+                if (msg) usingGemini = true;
+            }
+            if (!msg) {
                 const detail = callGroq._lastError ? ` (${callGroq._lastError})` : '';
-                console.error(`[Chat] callGroq returned null after tool round ${round}${detail}`);
+                console.error(`[Chat] Both Groq and Gemini failed after tool round ${round}${detail}`);
                 msg = { role: 'assistant', content: `I retrieved the data but ran into an error summarising it.${detail}\n\nPlease check the server terminal for details and try again.` };
                 break;
             }
@@ -1667,7 +1792,7 @@ app.post('/api/deploy', async (req, res) => {
                         name: repoName,
                         description: 'Generated by Atlas AI',
                         private: false,
-                        auto_init: false,
+                        auto_init: true,
                     }),
                 });
 
@@ -1685,44 +1810,7 @@ app.post('/api/deploy', async (req, res) => {
                 console.log(`[Deploy] GitHub repo created: ${owner}/${repo}`);
             }
 
-            const ghFiles = scaffoldForGitHub(files, template, repo);
-            for (const file of ghFiles) {
-                let sha;
-                if (isUpdate) {
-                    try {
-                        const getRes = await fetch(
-                            `https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`,
-                            { headers: ghHeaders }
-                        );
-                        if (getRes.ok) {
-                            const existing = await getRes.json();
-                            sha = existing.sha;
-                        }
-                    } catch { /* file doesn't exist yet */ }
-                }
-
-                const putBody = {
-                    message: isUpdate ? `Update ${file.path}` : `Add ${file.path}`,
-                    content: file.content,
-                };
-                if (sha) putBody.sha = sha;
-
-                const putRes = await fetch(
-                    `https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`,
-                    {
-                        method: 'PUT',
-                        headers: ghHeaders,
-                        body: JSON.stringify(putBody),
-                    }
-                );
-                if (!putRes.ok) {
-                    const err = await putRes.json().catch(() => ({}));
-                    console.warn(`[Deploy] Failed to push ${file.path}:`, err.message);
-                }
-            }
-
-            console.log(`[Deploy] ${isUpdate ? 'Updated' : 'Pushed'} ${ghFiles.length} files to ${owner}/${repo}`);
-
+            // 1. Enable GitHub Pages BEFORE pushing workflow so it's ready when Actions runs
             const pagesRes = await fetch(
                 `https://api.github.com/repos/${owner}/${repo}/pages`,
                 {
@@ -1735,6 +1823,96 @@ app.post('/api/deploy', async (req, res) => {
                 const pagesErr = await pagesRes.json().catch(() => ({}));
                 console.warn('[Deploy] GitHub Pages enable warning:', pagesErr.message);
             }
+
+            // 2. Push ALL files in a single atomic commit using Git Data API
+            const ghFiles = scaffoldForGitHub(files, template, repo);
+
+            const refRes = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/main`,
+                { headers: ghHeaders }
+            );
+            if (!refRes.ok) {
+                const refErr = await refRes.json().catch(() => ({}));
+                console.error('[Deploy] Failed to get main ref:', refErr.message);
+                return res.status(500).json({ error: 'Failed to read repository branch' });
+            }
+            const refData = await refRes.json();
+            const baseCommitSha = refData.object.sha;
+
+            const treeItems = [];
+            for (const file of ghFiles) {
+                const blobRes = await fetch(
+                    `https://api.github.com/repos/${owner}/${repo}/git/blobs`,
+                    {
+                        method: 'POST',
+                        headers: ghHeaders,
+                        body: JSON.stringify({ content: file.content, encoding: 'base64' }),
+                    }
+                );
+                if (!blobRes.ok) {
+                    const blobErr = await blobRes.json().catch(() => ({}));
+                    console.warn(`[Deploy] Failed to create blob for ${file.path}:`, blobErr.message);
+                    continue;
+                }
+                const blobData = await blobRes.json();
+                treeItems.push({
+                    path: file.path,
+                    mode: '100644',
+                    type: 'blob',
+                    sha: blobData.sha,
+                });
+            }
+
+            const treeRes = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/git/trees`,
+                {
+                    method: 'POST',
+                    headers: ghHeaders,
+                    body: JSON.stringify({ base_tree: baseCommitSha, tree: treeItems }),
+                }
+            );
+            if (!treeRes.ok) {
+                const treeErr = await treeRes.json().catch(() => ({}));
+                console.error('[Deploy] Failed to create tree:', treeErr.message);
+                return res.status(500).json({ error: 'Failed to create file tree' });
+            }
+            const treeData = await treeRes.json();
+
+            const commitMsg = isUpdate ? 'Update site via Atlas AI' : 'Deploy site via Atlas AI';
+            const commitRes = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/git/commits`,
+                {
+                    method: 'POST',
+                    headers: ghHeaders,
+                    body: JSON.stringify({
+                        message: commitMsg,
+                        tree: treeData.sha,
+                        parents: [baseCommitSha],
+                    }),
+                }
+            );
+            if (!commitRes.ok) {
+                const commitErr = await commitRes.json().catch(() => ({}));
+                console.error('[Deploy] Failed to create commit:', commitErr.message);
+                return res.status(500).json({ error: 'Failed to create commit' });
+            }
+            const commitData = await commitRes.json();
+
+            const updateRefRes = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/main`,
+                {
+                    method: 'PATCH',
+                    headers: ghHeaders,
+                    body: JSON.stringify({ sha: commitData.sha }),
+                }
+            );
+            if (!updateRefRes.ok) {
+                const updateErr = await updateRefRes.json().catch(() => ({}));
+                console.error('[Deploy] Failed to update ref:', updateErr.message);
+                return res.status(500).json({ error: 'Failed to update branch' });
+            }
+
+            console.log(`[Deploy] ${isUpdate ? 'Updated' : 'Pushed'} ${ghFiles.length} files to ${owner}/${repo} in single commit`);
 
             const siteUrl = `https://${owner}.github.io/${repo}/`;
             return res.json({

@@ -29,29 +29,51 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 `;
 
-function reactPackageJson(name) {
+const KNOWN_PACKAGES = {
+    'react-router-dom': '^7.1.0',
+    'lucide-react': '^0.460.0',
+    'framer-motion': '^11.15.0',
+    'react-icons': '^5.4.0',
+    'axios': '^1.7.0',
+    '@headlessui/react': '^2.2.0',
+    'clsx': '^2.1.0',
+    'recharts': '^2.15.0',
+    'date-fns': '^4.1.0',
+    'zustand': '^5.0.0',
+};
+
+function detectDeps(files) {
+    const allCode = Object.values(files).join('\n');
+    const deps = {};
+    for (const [pkg, version] of Object.entries(KNOWN_PACKAGES)) {
+        if (allCode.includes(pkg)) deps[pkg] = version;
+    }
+    return deps;
+}
+
+function reactPackageJson(name, extraDeps = {}) {
     return JSON.stringify({
-        name: name || 'atlas-site',
+        name: name || 'llmatscale-site',
         private: true,
         version: '1.0.0',
         type: 'module',
         scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
-        dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' },
+        dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0', ...extraDeps },
         devDependencies: { '@vitejs/plugin-react': '^4.3.0', vite: '^5.4.0' },
     }, null, 2);
 }
 
 function reactIndexHtml(rawName) {
-    const name = escHtml(rawName || 'Atlas Site');
+    const name = escHtml(rawName || 'LLM at Scale.AI Site');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${name}</title>
-  <meta name="description" content="${name} — Built with Atlas AI">
+  <meta name="description" content="${name} — Built with LLM at Scale.AI">
   <meta property="og:title" content="${name}">
-  <meta property="og:description" content="Built with Atlas AI">
+  <meta property="og:description" content="Built with LLM at Scale.AI">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌐</text></svg>">
@@ -70,7 +92,7 @@ function reactIndexHtml(rawName) {
 
 function vanillaPackageJson(name) {
     return JSON.stringify({
-        name: name || 'atlas-site',
+        name: name || 'llmatscale-site',
         private: true,
         version: '1.0.0',
         scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
@@ -96,7 +118,7 @@ export function getScaffoldFiles(files, template, projectName) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${projectName || 'Atlas Site'}</title>
+  <title>${projectName || 'LLM at Scale.AI Site'}</title>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -109,7 +131,7 @@ export function getScaffoldFiles(files, template, projectName) {
 </html>`;
         }
     } else {
-        result['package.json'] = reactPackageJson(projectName);
+        result['package.json'] = reactPackageJson(projectName, detectDeps(files));
         result['vite.config.js'] = REACT_VITE_CONFIG;
         result['index.html'] = reactIndexHtml(projectName);
         result['src/main.jsx'] = REACT_MAIN_JSX;

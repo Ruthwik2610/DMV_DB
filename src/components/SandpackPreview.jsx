@@ -136,7 +136,7 @@ export default function SandpackPreview({ files, template = 'react', sourceRepo 
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'atlas-project.zip';
+            a.download = 'llmatscale-project.zip';
             a.click();
             URL.revokeObjectURL(url);
         } catch (e) {
@@ -160,7 +160,7 @@ export default function SandpackPreview({ files, template = 'react', sourceRepo 
                 body: JSON.stringify({
                     files,
                     template,
-                    projectName: `atlas-${Date.now()}`,
+                    projectName: `llmatscale-${Date.now()}`,
                     target: target === 'github-update' ? 'github' : target,
                     sourceRepo: target === 'github-update' ? sourceRepo : undefined,
                 }),

@@ -204,7 +204,7 @@ export default function ChatInput({ onSendMessage, disabled = false }) {
                 <textarea
                     ref={textareaRef}
                     className="chat-textarea"
-                    placeholder={disabled ? 'Atlas is thinking...' : 'Message Atlas...'}
+                    placeholder={disabled ? 'LLM at Scale.AI is thinking...' : 'Message LLM at Scale.AI...'}
                     value={message}
                     onChange={handleInput}
                     onKeyDown={handleKeyDown}

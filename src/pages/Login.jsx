@@ -1,17 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const AtlasLogo = () => (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="32" cy="32" r="28" stroke="rgba(255,255,255,0.8)" strokeWidth="1.5" fill="none" />
-        <ellipse cx="32" cy="32" rx="28" ry="11" stroke="rgba(255,255,255,0.35)" strokeWidth="1" fill="none" />
-        <ellipse cx="32" cy="32" rx="11" ry="28" stroke="rgba(255,255,255,0.35)" strokeWidth="1" fill="none" />
-        <circle cx="32" cy="32" r="3.5" fill="rgba(255,255,255,0.9)" />
-        <circle cx="32" cy="4" r="2" fill="rgba(255,255,255,0.5)" />
-        <circle cx="32" cy="60" r="2" fill="rgba(255,255,255,0.5)" />
-        <circle cx="4" cy="32" r="2" fill="rgba(255,255,255,0.5)" />
-        <circle cx="60" cy="32" r="2" fill="rgba(255,255,255,0.5)" />
-    </svg>
+const LLMAtScaleLogo = ({ size = 140 }) => (
+    <img src="/llmatscale-logo-circle.png" alt="LLM at Scale.AI" width={size} height={size} style={{ borderRadius: '50%', objectFit: 'contain' }} />
 );
 
 export default function Login() {
@@ -23,7 +14,7 @@ export default function Login() {
     const handleLogin = (e) => {
         e.preventDefault();
         if (username === 'admin' && password === 'admin') {
-            sessionStorage.setItem('atlas_logged_in', 'true');
+            sessionStorage.setItem('llmatscale_logged_in', 'true');
             navigate('/chat');
         } else {
             setError('Sign in failed. Username or password is incorrect.');
@@ -36,19 +27,9 @@ export default function Login() {
             <div className="login-left">
                 <div className="login-left-overlay" />
                 <div className="login-left-content">
-                    <AtlasLogo />
-                    <h1 style={{
-                        fontSize: '2.5rem',
-                        fontWeight: 800,
-                        marginBottom: '1rem',
-                        textAlign: 'center',
-                        lineHeight: 1.15,
-                        color: 'white',
-                        letterSpacing: '-0.02em',
-                    }}>
-                        Atlas AI
-                    </h1>
+                    <LLMAtScaleLogo size={140} />
                     <p style={{
+                        marginTop: '1.5rem',
                         fontSize: '1.05rem',
                         opacity: 0.85,
                         textAlign: 'center',
@@ -59,15 +40,6 @@ export default function Login() {
                         Build websites, query databases, convert Figma designs, and deploy — all from a single conversation.
                     </p>
 
-                    <p style={{
-                        position: 'absolute',
-                        bottom: '1.5rem',
-                        fontSize: '0.72rem',
-                        color: 'rgba(255,255,255,0.4)',
-                        letterSpacing: '0.05em',
-                    }}>
-                        Powered by LLMAtScale.ai
-                    </p>
                 </div>
             </div>
 
@@ -123,7 +95,7 @@ export default function Login() {
                         fontSize: '0.8rem',
                         color: 'var(--text-muted)',
                     }}>
-                        LLMAtScale.ai · AI Platform
+                        LLM at Scale.AI · AI Platform
                     </p>
                 </div>
             </div>

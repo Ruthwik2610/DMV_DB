@@ -10,7 +10,30 @@ function escHtml(s) {
 
 // ── React Scaffold Templates ─────────────────────────────────────────
 
-function reactPackageJson(projectName) {
+// Packages the LLM commonly uses — detected from generated code and added to package.json
+const KNOWN_PACKAGES = {
+    'react-router-dom': '^7.1.0',
+    'lucide-react': '^0.460.0',
+    'framer-motion': '^11.15.0',
+    'react-icons': '^5.4.0',
+    'axios': '^1.7.0',
+    '@headlessui/react': '^2.2.0',
+    'clsx': '^2.1.0',
+    'recharts': '^2.15.0',
+    'date-fns': '^4.1.0',
+    'zustand': '^5.0.0',
+};
+
+function detectDeps(files) {
+    const allCode = Object.values(files).join('\n');
+    const deps = {};
+    for (const [pkg, version] of Object.entries(KNOWN_PACKAGES)) {
+        if (allCode.includes(pkg)) deps[pkg] = version;
+    }
+    return deps;
+}
+
+function reactPackageJson(projectName, extraDeps = {}) {
     return JSON.stringify({
         name: projectName || 'atlas-site',
         private: true,
@@ -24,6 +47,7 @@ function reactPackageJson(projectName) {
         dependencies: {
             react: '^19.0.0',
             'react-dom': '^19.0.0',
+            ...extraDeps,
         },
         devDependencies: {
             '@vitejs/plugin-react': '^4.3.0',
@@ -198,7 +222,7 @@ export function getScaffoldFilesRaw(files, template, projectName) {
         }
     } else {
         // React template
-        result['package.json'] = reactPackageJson(projectName);
+        result['package.json'] = reactPackageJson(projectName, detectDeps(files));
         result['vite.config.js'] = reactViteConfig(projectName);
         result['index.html'] = reactIndexHtml(projectName);
         result['src/main.jsx'] = REACT_MAIN_JSX;

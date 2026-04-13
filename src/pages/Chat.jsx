@@ -4,7 +4,7 @@ import ChatInput from '../components/ChatInput';
 import MessageRenderer from '../components/MessageRenderer';
 import {
     MessageSquarePlus, LogOut, ShieldCheck,
-    Trash2, ChevronDown, Copy, Check, RefreshCw, Database, Square,
+    Trash2, ChevronDown, Copy, Check, RefreshCw, Square,
     PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 const WELCOME_MESSAGE = {
     id: 1,
     role: 'assistant',
-    content: "Hello! I'm Atlas, your AI-powered assistant by LLMAtScale.ai. I can help you:\n\n- **Query databases** — BigQuery, Salesforce, or any connected data source\n- **Build websites** — Generate React + Tailwind sites from a text prompt or Figma design\n- **Deploy** — One-click deploy to Vercel or GitHub Pages\n- **Create MCP servers** — Auto-generate connectors for any database or API\n- **Import & edit** — Pull code from GitHub, edit, and redeploy\n\nConnect a data source via **Connectors**, or just ask me to build something!",
+    content: "Hello! I'm your AI-powered assistant by LLM at Scale.AI. I can help you:\n\n- **Query databases** — BigQuery, Salesforce, or any connected data source\n- **Build websites** — Generate React + Tailwind sites from a text prompt or Figma design\n- **Deploy** — One-click deploy to Vercel or GitHub Pages\n- **Create MCP servers** — Auto-generate connectors for any database or API\n- **Import & edit** — Pull code from GitHub, edit, and redeploy\n\nConnect a data source via **Connectors**, or just ask me to build something!",
     timestamp: Date.now(),
 };
 
@@ -79,7 +79,7 @@ function TypingIndicator() {
     );
 }
 
-// ─── Thinking status — cycles through what Atlas is doing ────────────────────
+// ─── Thinking status — cycles through what the AI is doing ───────────────────
 const THINKING_STEPS = [
     'Understanding your request...',
     'Analyzing context...',
@@ -121,7 +121,7 @@ function EmptyState() {
         { title: 'Create MCP Servers', desc: 'Auto-generate MCP servers for PostgreSQL, REST APIs, or any data source' },
         { title: 'Deploy Anywhere', desc: 'One-click deploy to Vercel or GitHub Pages, or update an existing repo' },
         { title: 'Import & Edit', desc: 'Pull code from any GitHub repo, make changes via chat, and redeploy' },
-        { title: 'Image to UI', desc: 'Upload a screenshot or mockup and Atlas will build matching code' },
+        { title: 'Image to UI', desc: 'Upload a screenshot or mockup and LLM at Scale.AI will build matching code' },
         { title: 'Connect Services', desc: 'Add MCP connectors for BigQuery, Salesforce, Figma, and more' },
     ];
 
@@ -137,18 +137,15 @@ function EmptyState() {
             overflowY: 'auto',
         }}>
             <div style={{ textAlign: 'center' }}>
-                <div style={{
-                    width: '56px', height: '56px',
-                    borderRadius: '14px',
-                    backgroundColor: 'var(--accent)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    margin: '0 auto 0.75rem',
-                    opacity: 0.9,
-                }}>
-                    <Database size={28} color="white" />
-                </div>
+                <img
+                    src="/llmatscale-logo-circle.png"
+                    alt="LLM at Scale.AI"
+                    width="72"
+                    height="72"
+                    style={{ borderRadius: '50%', objectFit: 'contain', margin: '0 auto 0.75rem' }}
+                />
                 <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '0.3rem' }}>
-                    What can Atlas do?
+                    What can LLM at Scale.AI do?
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '400px' }}>
                     Type a message below to get started, or explore what's possible.
@@ -200,7 +197,7 @@ export default function Chat() {
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
 
-    const THREADS_KEY = 'atlas_chat_threads';
+    const THREADS_KEY = 'llmatscale_chat_threads';
     const loadSavedThreads = () => {
         try {
             const saved = JSON.parse(localStorage.getItem(THREADS_KEY));
@@ -361,10 +358,10 @@ export default function Chat() {
             // Auto-save connector if MCP server was auto-deployed
             if (data.autoConnector?.url && data.autoConnector?.name) {
                 try {
-                    const saved = JSON.parse(localStorage.getItem('atlas_saved_connectors') || '[]');
+                    const saved = JSON.parse(localStorage.getItem('llmatscale_saved_connectors') || '[]');
                     if (!saved.some(c => c.url === data.autoConnector.url)) {
                         saved.push({ name: data.autoConnector.name, url: data.autoConnector.url });
-                        localStorage.setItem('atlas_saved_connectors', JSON.stringify(saved));
+                        localStorage.setItem('llmatscale_saved_connectors', JSON.stringify(saved));
                     }
                 } catch { /* ignore localStorage errors */ }
             }
@@ -486,9 +483,11 @@ export default function Chat() {
             {/* ── Sidebar ── */}
             <div className={`sidebar${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
                 <div className="sidebar-header">
-                    <div className="flex items-center gap-2 font-bold text-lg" style={{ color: 'var(--accent)' }}>
-                        <ShieldCheck size={22} />
-                        <span>Atlas AI</span>
+                    <div className="flex items-center gap-2" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <img src="/llmatscale-logo-circle.png" alt="LLM at Scale.AI" width="42" height="42" style={{ borderRadius: '50%', objectFit: 'contain' }} />
+                        <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+                            LLM at Scale<span style={{ color: 'var(--accent)' }}>.AI</span>
+                        </span>
                     </div>
                 </div>
 
@@ -573,7 +572,7 @@ export default function Chat() {
                     <button
                         className="btn btn-ghost w-full justify-start gap-2"
                         style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-                        onClick={() => { sessionStorage.removeItem('atlas_logged_in'); navigate('/login'); }}
+                        onClick={() => { sessionStorage.removeItem('llmatscale_logged_in'); navigate('/login'); }}
                     >
                         <LogOut size={16} /> Log out
                     </button>
@@ -645,7 +644,7 @@ export default function Chat() {
                                             color: 'var(--text-secondary)',
                                             fontWeight: 600,
                                         }}>
-                                            {msg.role === 'assistant' ? 'Atlas' : 'You'}
+                                            {msg.role === 'assistant' ? 'LLM at Scale.AI' : 'You'}
                                         </span>
                                         {msg.timestamp && (
                                             <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>

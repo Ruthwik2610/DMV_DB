@@ -25,7 +25,7 @@ export default function ConnectorsDropdown() {
     // ---------------------------------------------------------------
     // localStorage helpers – persist connector URLs across reloads
     // ---------------------------------------------------------------
-    const STORAGE_KEY = 'atlas_saved_connectors';
+    const STORAGE_KEY = 'llmatscale_saved_connectors';
 
     const getSavedConnectors = () => {
         try {

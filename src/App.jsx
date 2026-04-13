@@ -4,7 +4,7 @@ import Chat from './pages/Chat';
 import './App.css';
 
 function ProtectedRoute({ children }) {
-  const isLoggedIn = sessionStorage.getItem('atlas_logged_in') === 'true';
+  const isLoggedIn = sessionStorage.getItem('llmatscale_logged_in') === 'true';
   return isLoggedIn ? children : <Navigate to="/login" replace />;
 }
 
