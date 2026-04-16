@@ -39,8 +39,8 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 /**
  * Connects to an MCP URL and adds it to the active pool.
  */
-async function connectToMcp(url, displayName, retries = 3) {
-    const id = generateId();
+async function connectToMcp(url, displayName, retries = 3, existingId = null) {
+    const id = existingId || generateId();
     for (let attempt = 1; attempt <= retries; attempt++) {
         let transport;
         try {
@@ -51,10 +51,13 @@ async function connectToMcp(url, displayName, retries = 3) {
             );
 
             activeConnectors.set(id, {
+                id,
+                url,
                 name: displayName,
                 client,
                 transport,
-                status: 'connecting'
+                status: 'connecting',
+                lastError: null
             });
 
             const timer = setTimeout(() => {
@@ -83,7 +86,7 @@ async function connectToMcp(url, displayName, retries = 3) {
                         { name: 'Atlas-AI-Client', version: '1.0.0' },
                         { capabilities: { tools: {} } }
                     );
-                    activeConnectors.set(id, { name: displayName, client: sseClient, transport: sseTransport, status: 'connecting' });
+                    activeConnectors.set(id, { id, url, name: displayName, client: sseClient, transport: sseTransport, status: 'connecting', lastError: null });
                     await sseClient.connect(sseTransport);
                     activeConnectors.get(id).status = 'connected';
                     console.log(`[System] ✅ Connected to ${displayName} via SSE fallback!`);
@@ -95,32 +98,25 @@ async function connectToMcp(url, displayName, retries = 3) {
 
             if (attempt < retries) {
                 console.log(`[System] Retrying in 5s...`);
-                try { await transport.close(); } catch { /* ignore */ }
+                try { if (transport) await transport.close(); } catch { /* ignore */ }
                 await new Promise(r => setTimeout(r, 5000));
-                activeConnectors.delete(id);
-                continue;
+            } else {
+                if (activeConnectors.has(id)) {
+                    activeConnectors.get(id).status = 'error';
+                    activeConnectors.get(id).lastError = error.message;
+                }
             }
-            if (activeConnectors.has(id)) {
-                activeConnectors.get(id).status = 'error';
-            }
-            return false;
         }
     }
-    return false;
+    return null;
 }
 
-/**
- * Reads mcp_registry.json and connects to all listed MCPs.
- */
 async function autoConnectFromRegistry() {
-    console.log('[System] Attempting to load MCP registry...');
     try {
         const registryPath = path.join(__dirname, 'mcp_registry.json');
-        console.log(`[System] Checking for registry at: ${registryPath}`);
         if (fs.existsSync(registryPath)) {
             const data = fs.readFileSync(registryPath, 'utf8');
             const connectors = JSON.parse(data);
-            console.log(`[System] Loading ${connectors.length} MCPs from registry...`);
             for (const { name, url } of connectors) {
                 const exists = Array.from(activeConnectors.values()).find(c => c.name === name);
                 if (!exists) {
@@ -132,6 +128,22 @@ async function autoConnectFromRegistry() {
         console.error(`[System] Error loading MCP registry:`, err.message);
     }
 }
+
+/**
+ * Health Check Loop — Periodically attempts to reconnect broken connectors.
+ */
+function startHealthCheckLoop() {
+    setInterval(async () => {
+        for (const [id, c] of activeConnectors.entries()) {
+            if (c.status === 'error' || c.status === 'unavailable') {
+                console.log(`[Health] Attempting to reconnect: ${c.name}...`);
+                await connectToMcp(c.url, c.name, 1, id);
+            }
+        }
+    }, 10 * 60 * 1000); // Check every 10 minutes
+}
+
+autoConnectFromRegistry().then(() => startHealthCheckLoop());
 
 /**
  * Gets a fresh Salesforce access token using the refresh token.
@@ -533,7 +545,13 @@ Chain multiple tool calls as needed. There is no limit.
 - Translate raw numerical results into natural summaries.
 - Never mention tool names, dataset names, BigQuery, MCP, or any infrastructure.
 - If nothing is found: "I checked and couldn't find anything matching that."
-- Keep a helpful, professional tone.`;
+- Keep a helpful, professional tone.
+
+## TOOL CALLING RULES (CRITICAL)
+- You have structured tools available. ALWAYS invoke them using the built-in tool/function calling mechanism.
+- NEVER write function calls as text like <function=tool_name>args</function> or [tool_name](args). That syntax does nothing.
+- NEVER narrate "I will now call the tool..." — just call it silently and present the results.
+- If you need data, call the tool. If no tool covers the request, say so clearly.`;
 
 const CODE_GEN_SYSTEM_PROMPT = `You are Atlas, an expert web developer assistant.
 When asked to build, create, or generate a website, app, landing page, dashboard, or UI component:
@@ -637,20 +655,21 @@ const CODE_GEN_KEYWORDS = [
 const MCP_KEYWORDS = ['mcp', 'model context protocol', 'mcp server', 'connector', 'data source'];
 
 function isMcpCreationRequest(messages) {
+    if (!Array.isArray(messages)) return false;
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return false;
-    const text = (lastUserMsg.content || '').toLowerCase();
-    const hasMcp = MCP_KEYWORDS.some(kw => text.includes(kw));
-    const hasAction = /\b(create|build|make|generate|setup|connect|add)\b/.test(text);
-    return hasMcp && hasAction;
+    const content = (lastUserMsg.content || '').toLowerCase();
+    return /\b(mcp|model context protocol|create connector|build connector|connector server|new mcp)\b/i.test(content);
 }
 
 function getLastUserMessage(messages) {
+    if (!Array.isArray(messages)) return '';
     const msg = [...messages].reverse().find(m => m.role === 'user');
     return msg ? (msg.content || '').toLowerCase() : '';
 }
 
 function getLastUserMessageRaw(messages) {
+    if (!Array.isArray(messages)) return '';
     const msg = [...messages].reverse().find(m => m.role === 'user');
     return msg ? (msg.content || '') : '';
 }
@@ -764,6 +783,7 @@ async function deployToCloudflare(scriptName, workerCode) {
 }
 
 function isCodeGenerationRequest(messages) {
+    if (!Array.isArray(messages)) return false;
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUserMsg) return false;
     const text = (lastUserMsg.content || '').toLowerCase();
@@ -862,7 +882,7 @@ async function callGemini(messages, maxTokens = 16384, images = []) {
 }
 
 // -----------------------------------------------------------------------
-// Gemini with Function Calling — fallback when Groq is unavailable
+// Gemini with Function Calling — primary LLM for data queries and tool use
 // -----------------------------------------------------------------------
 function openaiToolsToGemini(openaiTools) {
     return [{
@@ -874,36 +894,68 @@ function openaiToolsToGemini(openaiTools) {
     }];
 }
 
+/**
+ * Sanitizes and maps OpenAI-style messages to Gemini-compatible contents.
+ * Ensures strictly alternating roles (user <-> model) and valid tool names.
+ */
+function mapMessagesToGemini(messages) {
+    const contents = [];
+    let lastRole = null;
+
+    for (const m of messages) {
+        if (m.role === 'system') continue;
+
+        let role = m.role === 'assistant' ? 'model' : 'user';
+        let parts = [];
+
+        if (m.role === 'tool') {
+            // Gemini (Vertex/GenerativeAI) requires function_response parts to have a valid name
+            const toolName = m.name || (m.tool_call_id ? m.tool_call_id.replace(/^gemini_/, '') : 'unknown_tool');
+            parts.push({
+                functionResponse: {
+                    name: toolName,
+                    response: { result: m.content || '' }
+                }
+            });
+            role = 'user';
+        } else if (m.role === 'assistant' && m.tool_calls?.length) {
+            parts = m.tool_calls.map(tc => ({
+                functionCall: {
+                    name: tc.function.name,
+                    args: JSON.parse(tc.function.arguments || '{}')
+                }
+            }));
+            role = 'model';
+        } else {
+            parts.push({ text: m.content || '' });
+        }
+
+        // Gemini strict alternating roles check
+        if (role === lastRole) {
+            // Merge text content if roles are the same (happens with multiple user messages)
+            if (role === 'user' && parts[0]?.text && contents[contents.length - 1]?.parts?.[0]?.text !== undefined) {
+                contents[contents.length - 1].parts[0].text += `\n\n${parts[0].text}`;
+            } else if (role === 'user') {
+                // If we can't merge nicely, wrap in a temporary role (handled by model usually)
+                contents.push({ role, parts });
+            }
+            continue;
+        }
+
+        contents.push({ role, parts });
+        lastRole = role;
+    }
+
+    return contents;
+}
+
 async function callGeminiWithTools(messages, tools, maxTokens = 8192) {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') return null;
 
     try {
         const systemMsg = messages.find(m => m.role === 'system');
-        const contents = [];
-        for (const m of messages) {
-            if (m.role === 'system') continue;
-            if (m.role === 'tool') {
-                // Convert OpenAI tool result → Gemini functionResponse
-                contents.push({
-                    role: 'user',
-                    parts: [{ functionResponse: { name: m.name, response: { result: m.content } } }],
-                });
-            } else if (m.role === 'assistant' && m.tool_calls?.length) {
-                // Convert OpenAI-style assistant tool_calls → Gemini functionCall parts
-                contents.push({
-                    role: 'model',
-                    parts: m.tool_calls.map(tc => ({
-                        functionCall: { name: tc.function.name, args: JSON.parse(tc.function.arguments || '{}') },
-                    })),
-                });
-            } else {
-                contents.push({
-                    role: m.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: m.content || '' }],
-                });
-            }
-        }
+        const contents = mapMessagesToGemini(messages);
 
         const body = {
             contents,
@@ -920,9 +972,14 @@ async function callGeminiWithTools(messages, tools, maxTokens = 8192) {
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         );
+        
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             console.error(`[Gemini-Tools] HTTP ${response.status}:`, JSON.stringify(errData));
+            // Specifically log the error message for 400s to identify structural issues
+            if (response.status === 400 && errData.error?.message) {
+                console.error(`[Gemini-Tools] Validation Error: ${errData.error.message}`);
+            }
             return null;
         }
 
@@ -936,12 +993,11 @@ async function callGeminiWithTools(messages, tools, maxTokens = 8192) {
         const parts = candidate.content.parts;
         const functionCalls = parts.filter(p => p.functionCall);
         if (functionCalls.length > 0) {
-            // Convert Gemini functionCall → OpenAI-style tool_calls
             return {
                 role: 'assistant',
                 content: null,
                 tool_calls: functionCalls.map((p, i) => ({
-                    id: `gemini_${Date.now()}_${i}`,
+                    id: `gemini_${p.functionCall.name}_${Date.now()}_${i}`,
                     type: 'function',
                     function: {
                         name: p.functionCall.name,
@@ -992,6 +1048,9 @@ async function buildToolRegistry() {
         if (c.status !== 'connected') continue;
         try {
             const { tools = [] } = await c.client.listTools();
+            if (!Array.isArray(tools)) {
+                throw new Error(`Invalid tool response from ${c.name}: tools is not an array`);
+            }
             const toolLines = [];
             for (const tool of tools) {
                 availableTools.push({
@@ -1007,8 +1066,15 @@ async function buildToolRegistry() {
             }
             summaryBlocks.push(`### ${c.name}  ·  ${tools.length} tool${tools.length !== 1 ? 's' : ''}  ·  ✅ Connected\n${toolLines.join('\n')}`);
         } catch (e) {
-            console.error('[MCP] listTools error:', e.message);
+            console.error(`[MCP] listTools error for ${c.name}:`, e.message);
             summaryBlocks.push(`### ${c.name}  ·  ⚠️ Unavailable`);
+            
+            // Trigger auto-reconnect if it's a session or content-type error
+            if (e.message.includes('Session not found') || e.message.includes('text/html')) {
+                console.log(`[MCP] Detected stale session for ${c.name}. Triggering reconnect...`);
+                c.status = 'error';
+                connectToMcp(c.url, c.name, 1, id).catch(() => {});
+            }
         }
     }
 
@@ -1017,7 +1083,7 @@ async function buildToolRegistry() {
 }
 
 // -----------------------------------------------------------------------
-// Helper — convert MCP tool result content to a plain string for Groq.
+// Helper — convert MCP tool result content to a plain string.
 // -----------------------------------------------------------------------
 function extractMcpContent(rawContent) {
     if (typeof rawContent === 'string') return rawContent;
@@ -1130,10 +1196,17 @@ async function executeToolCalls(toolCalls, toolToConnector, messagesToLlm) {
 // -----------------------------------------------------------------------
 app.post('/api/chat', async (req, res) => {
     const { messages, codeSnapshot, images } = req.body;
-    const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.GROK_API_KEY;
 
-    if (!GROQ_API_KEY || GROQ_API_KEY === 'your_grok_api_key_here') {
-        return res.status(500).json({ error: 'GROQ_API_KEY not configured in .env' });
+    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
+        console.error('[Chat] GEMINI_API_KEY not configured in .env');
+        return res.status(500).json({ role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment." });
+    }
+
+    // Guard: messages must be a non-empty array — crash here is swallowed by the outer catch
+    // and surfaces as "I'm having trouble connecting" which is very confusing.
+    if (!Array.isArray(messages) || messages.length === 0) {
+        console.error('[Chat] Invalid request: messages is', typeof messages, messages);
+        return res.status(400).json({ role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment." });
     }
 
     try {
@@ -1233,23 +1306,6 @@ ${designContext}`;
                 ];
 
                 let msg = await callGemini(figmaMessages, 16384);
-                if (!msg) {
-                    const groqBody = {
-                        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-                        messages: figmaMessages.map(m => ({ ...m, content: m.content ?? '' })),
-                        temperature: 0.3,
-                        max_tokens: 8192,
-                    };
-                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                        body: JSON.stringify(groqBody),
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.choices?.length) msg = data.choices[0].message;
-                    }
-                }
                 if (!msg) return res.json({ role: 'assistant', content: "I fetched the Figma design but couldn't generate code. Please try again." });
                 return res.json({ role: 'assistant', content: msg.content });
             } catch (e) {
@@ -1379,23 +1435,6 @@ ${skillContent}${refContent}`;
                 ];
 
                 let msg = await callGemini(mcpMessages, 16384);
-                if (!msg) {
-                    const groqBody = {
-                        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-                        messages: mcpMessages.map(m => ({ ...m, content: m.content ?? '' })),
-                        temperature: 0.3,
-                        max_tokens: 8192,
-                    };
-                    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                        body: JSON.stringify(groqBody),
-                    });
-                    if (groqRes.ok) {
-                        const data = await groqRes.json();
-                        if (data.choices?.length) msg = data.choices[0].message;
-                    }
-                }
                 if (!msg) return res.json({ role: 'assistant', content: "I'm having trouble generating the MCP server code. Please try again." });
 
                 // Parse worker.js from LLM response — try <file> tags first, then markdown fences
@@ -1473,23 +1512,6 @@ ${skillContent}${refContent}`;
                 ];
 
                 let msg = await callGemini(mcpMessages, 16384);
-                if (!msg) {
-                    const groqBody = {
-                        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-                        messages: mcpMessages.map(m => ({ ...m, content: m.content ?? '' })),
-                        temperature: 0.3,
-                        max_tokens: 8192,
-                    };
-                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                        body: JSON.stringify(groqBody),
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.choices?.length) msg = data.choices[0].message;
-                    }
-                }
                 if (!msg) return res.json({ role: 'assistant', content: "I'm having trouble generating the MCP server code. Please try again." });
                 return res.json({ role: 'assistant', content: msg.content });
             }
@@ -1520,37 +1542,7 @@ ${skillContent}${refContent}`;
             ];
             let msg = await callGemini(geminiMessages, 16384, images || []);
             if (!msg) {
-                console.log('[Chat] Gemini unavailable, falling back to Groq for code gen');
-                const groqCodeMessages = geminiMessages.map(m => ({ ...m, content: m.content ?? '' }));
-                const groqBody = {
-                    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-                    messages: groqCodeMessages,
-                    temperature: 0.4,
-                    max_tokens: 8192,
-                };
-                try {
-                    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                        body: JSON.stringify(groqBody),
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.choices?.length) {
-                            msg = data.choices[0].message;
-                        } else {
-                            console.error('[Chat] Groq code-gen returned no choices:', JSON.stringify(data));
-                        }
-                    } else {
-                        const errData = await response.json().catch(() => ({}));
-                        console.error(`[Chat] Groq code-gen fallback HTTP ${response.status}:`, JSON.stringify(errData));
-                    }
-                } catch (groqErr) {
-                    console.error('[Chat] Groq code-gen fallback failed:', groqErr.message);
-                }
-            }
-            if (!msg) {
-                console.error('[Chat] ❌ Both Gemini and Groq failed for code generation. GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY, 'GROQ_API_KEY set:', !!process.env.GROQ_API_KEY);
+                console.error('[Chat] ❌ Gemini failed for code generation. GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
                 return res.json({ role: 'assistant', content: "I'm having trouble generating code right now. Please try again in a moment." });
             }
             return res.json({ role: 'assistant', content: msg.content });
@@ -1580,107 +1572,24 @@ ${skillContent}${refContent}`;
             })),
         ];
 
-        const callGroq = async (includeTools) => {
-            const safeMessages = messagesToLlm.map(m => ({ ...m, content: m.content ?? '' }));
-            const body = {
-                model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-                messages: safeMessages,
-                temperature: 0.15,
-                max_tokens: 4096,
-            };
-            if (includeTools && availableTools.length > 0) {
-                body.tools = availableTools;
-                body.tool_choice = 'auto';
-                body.parallel_tool_calls = false;
-            }
-            let bodyStr = JSON.stringify(body);
-            bodyStr = bodyStr.replace(/"name":"([a-zA-Z0-9_-]+)\s*\{[^}]+\}"/g, '"name":"$1"');
-            const MAX_RETRIES = 3;
-            let response, attempt;
-            for (attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-                response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-                    body: bodyStr,
-                });
-                if (response.status === 429 && attempt < MAX_RETRIES) {
-                    let waitSec = 2 * (attempt + 1);
-                    try {
-                        const retryAfter = response.headers.get('retry-after');
-                        if (retryAfter) waitSec = Math.ceil(parseFloat(retryAfter));
-                        else {
-                            const errBody = await response.json().catch(() => ({}));
-                            const match = errBody?.error?.message?.match(/try again in (\d+\.?\d*)s/i);
-                            if (match) waitSec = Math.ceil(parseFloat(match[1]));
-                        }
-                    } catch { /* use default */ }
-                    console.log(`[Groq] 429 rate-limited — waiting ${waitSec}s before retry ${attempt + 1}/${MAX_RETRIES}…`);
-                    await new Promise(r => setTimeout(r, waitSec * 1000));
-                    continue;
-                }
-                break;
-            }
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                const groqMsg = errData?.error?.message || JSON.stringify(errData);
-                console.error(`[Groq] HTTP ${response.status} — ${groqMsg}`);
-                callGroq._lastError = `Groq ${response.status}: ${groqMsg}`;
-                return null;
-            }
-            const data = await response.json();
-            if (!data.choices?.length) {
-                console.error('[Groq] Response had no choices:', JSON.stringify(data));
-                return null;
-            }
-            return data.choices[0].message;
-        };
-        callGroq._lastError = null;
-
         const MAX_TOOL_ROUNDS = 8;
         let round = 0;
-        let msg = await callGroq(true);
-        let usingGemini = false;
+        console.log('[Chat] Calling Gemini for data query');
+        let msg = await callGeminiWithTools(messagesToLlm, availableTools.length > 0 ? availableTools : []);
         if (!msg) {
-            console.log('[Chat] Groq unavailable for data query, falling back to Gemini with tools');
-            msg = await callGeminiWithTools(messagesToLlm, availableTools.length > 0 ? availableTools : []);
-            if (msg) usingGemini = true;
-        }
-        if (!msg) {
+            console.error('[Chat] ❌ Gemini failed for data query. GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
             return res.json({ role: 'assistant', content: "I'm having trouble connecting right now. Please try again in a moment." });
         }
         while (msg.tool_calls?.length > 0 && round < MAX_TOOL_ROUNDS) {
             round++;
-            for (const tc of msg.tool_calls) {
-                const braceIdx = tc.function.name.indexOf('{');
-                if (braceIdx !== -1) {
-                    const embeddedJson = tc.function.name.slice(braceIdx).trim();
-                    tc.function.name = tc.function.name.slice(0, braceIdx).trim();
-                    try {
-                        const embedded = JSON.parse(embeddedJson);
-                        const existing = JSON.parse(tc.function.arguments || '{}');
-                        tc.function.arguments = JSON.stringify({ ...embedded, ...existing });
-                    } catch { /* best-effort */ }
-                    console.warn(`[Chat] Sanitized malformed tool name → "${tc.function.name}"`);
-                }
-            }
             console.log(`[Chat] Tool round ${round}: ${msg.tool_calls.length} call(s) — ${msg.tool_calls.map(c => c.function?.name).join(', ')}`);
             messagesToLlm.push(msg);
             await executeToolCalls(msg.tool_calls, toolToConnector, messagesToLlm);
             const isLastAllowedRound = round >= MAX_TOOL_ROUNDS;
-            msg = await callGroq(!isLastAllowedRound);
+            msg = await callGeminiWithTools(messagesToLlm, isLastAllowedRound ? [] : availableTools);
             if (!msg) {
-                console.warn(`[Chat] callGroq failed after tool round ${round}, retrying without tools…`);
-                msg = await callGroq(false);
-            }
-            if (!msg) {
-                console.log(`[Chat] Groq failed mid-loop (round ${round}), falling back to Gemini`);
-                msg = await callGeminiWithTools(messagesToLlm, isLastAllowedRound ? [] : availableTools);
-                if (msg) usingGemini = true;
-            }
-            if (!msg) {
-                const detail = callGroq._lastError ? ` (${callGroq._lastError})` : '';
-                console.error(`[Chat] Both Groq and Gemini failed after tool round ${round}${detail}`);
-                msg = { role: 'assistant', content: `I retrieved the data but ran into an error summarising it.${detail}\n\nPlease check the server terminal for details and try again.` };
+                console.error(`[Chat] Gemini failed after tool round ${round}`);
+                msg = { role: 'assistant', content: `I retrieved the data but ran into an error summarising it. Please check the server terminal for details and try again.` };
                 break;
             }
         }
@@ -2011,7 +1920,7 @@ app.get('/api/health', (req, res) => {
         connectors: activeConnectors.size,
         skills: skills.length,
         env: {
-            GROQ_API_KEY: !!process.env.GROQ_API_KEY,
+            GROQ_API_KEY: !!process.env.GROQ_API_KEY, // legacy — no longer used
             GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
             DEPLOY_VERCEL_TOKEN: !!process.env.DEPLOY_VERCEL_TOKEN,
             GITHUB_TOKEN: !!process.env.GITHUB_TOKEN,
