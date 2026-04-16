@@ -894,10 +894,6 @@ function openaiToolsToGemini(openaiTools) {
     }];
 }
 
-/**
- * Sanitizes and maps OpenAI-style messages to Gemini-compatible contents.
- * Ensures strictly alternating roles (user <-> model) and valid tool names.
- */
 function mapMessagesToGemini(messages) {
     const contents = [];
     let lastRole = null;
@@ -909,12 +905,25 @@ function mapMessagesToGemini(messages) {
         let parts = [];
 
         if (m.role === 'tool') {
-            // Gemini (Vertex/GenerativeAI) requires function_response parts to have a valid name
             const toolName = m.name || (m.tool_call_id ? m.tool_call_id.replace(/^gemini_/, '') : 'unknown_tool');
+            
+            // Gemini strictly expects the response to be a valid JSON Object (Struct)
+            let parsedResponse;
+            try {
+                parsedResponse = JSON.parse(m.content);
+                // If the parsed content isn't an object, wrap it
+                if (typeof parsedResponse !== 'object' || parsedResponse === null) {
+                    parsedResponse = { result: String(m.content) };
+                }
+            } catch (e) {
+                // If it's a raw string (like a standard MCP text response)
+                parsedResponse = { result: m.content || 'Success' };
+            }
+
             parts.push({
                 functionResponse: {
                     name: toolName,
-                    response: { result: m.content || '' }
+                    response: parsedResponse
                 }
             });
             role = 'user';
@@ -927,17 +936,21 @@ function mapMessagesToGemini(messages) {
             }));
             role = 'model';
         } else {
-            parts.push({ text: m.content || '' });
+            // Prevent 400 Bad Request from empty text strings
+            parts.push({ text: m.content ? m.content : ' ' }); 
         }
 
         // Gemini strict alternating roles check
         if (role === lastRole) {
-            // Merge text content if roles are the same (happens with multiple user messages)
-            if (role === 'user' && parts[0]?.text && contents[contents.length - 1]?.parts?.[0]?.text !== undefined) {
-                contents[contents.length - 1].parts[0].text += `\n\n${parts[0].text}`;
-            } else if (role === 'user') {
-                // If we can't merge nicely, wrap in a temporary role (handled by model usually)
-                contents.push({ role, parts });
+            if (contents.length > 0) {
+                const lastMsg = contents[contents.length - 1];
+                // If it's standard text, concatenate it
+                if (parts[0]?.text && lastMsg.parts[lastMsg.parts.length - 1]?.text) {
+                    lastMsg.parts[lastMsg.parts.length - 1].text += `\n\n${parts[0].text}`;
+                } else {
+                    // CRITICAL FIX: Append parallel functionResponses to the existing user message's parts array
+                    lastMsg.parts.push(...parts);
+                }
             }
             continue;
         }
