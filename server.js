@@ -877,16 +877,35 @@ async function callGemini(messages, maxTokens = 16384, images = []) {
     }
 }
 
-// -----------------------------------------------------------------------
-// Gemini with Function Calling — primary LLM for data queries and tool use
-// -----------------------------------------------------------------------
+// Helper to recursively remove keys that Gemini's strict schema parser rejects
+function cleanGeminiSchema(obj) {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    if (Array.isArray(obj)) return obj.map(cleanGeminiSchema);
+    
+    const newObj = {};
+    for (const key in obj) {
+        // Gemini strictly rejects these JSON schema keys
+        if (key === 'additionalProperties' || key === '$schema') continue; 
+        
+        newObj[key] = cleanGeminiSchema(obj[key]);
+    }
+    return newObj;
+}
+
 function openaiToolsToGemini(openaiTools) {
     return [{
-        functionDeclarations: openaiTools.map(t => ({
-            name: t.function.name,
-            description: t.function.description || '',
-            parameters: t.function.parameters || { type: 'object', properties: {} },
-        })),
+        functionDeclarations: openaiTools.map(t => {
+            let params = t.function.parameters || { type: 'object', properties: {} };
+            
+            // Sanitize the schema before sending to Gemini
+            params = cleanGeminiSchema(params);
+            
+            return {
+                name: t.function.name,
+                description: t.function.description || '',
+                parameters: params,
+            };
+        }),
     }];
 }
 
@@ -902,7 +921,7 @@ function mapMessagesToGemini(messages) {
 
         if (m.role === 'tool') {
             const toolName = m.name || (m.tool_call_id ? m.tool_call_id.replace(/^gemini_/, '') : 'unknown_tool');
-            
+
             // Gemini strictly expects the response to be a valid JSON Object (Struct)
             let parsedResponse;
             try {
@@ -933,7 +952,7 @@ function mapMessagesToGemini(messages) {
             role = 'model';
         } else {
             // Prevent 400 Bad Request from empty text strings
-            parts.push({ text: m.content ? m.content : ' ' }); 
+            parts.push({ text: m.content ? m.content : ' ' });
         }
 
         // --- CRITICAL FIX 1: Gemini requires the first message to be 'user' ---
@@ -986,7 +1005,7 @@ async function callGeminiWithTools(messages, tools, maxTokens = 8192) {
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         );
-        
+
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             console.error(`[Gemini-Tools] HTTP ${response.status}:`, JSON.stringify(errData));
@@ -1082,12 +1101,12 @@ async function buildToolRegistry() {
         } catch (e) {
             console.error(`[MCP] listTools error for ${c.name}:`, e.message);
             summaryBlocks.push(`### ${c.name}  ·  ⚠️ Unavailable`);
-            
+
             // Trigger auto-reconnect if it's a session or content-type error
             if (e.message.includes('Session not found') || e.message.includes('text/html')) {
                 console.log(`[MCP] Detected stale session for ${c.name}. Triggering reconnect...`);
                 c.status = 'error';
-                connectToMcp(c.url, c.name, 1, id).catch(() => {});
+                connectToMcp(c.url, c.name, 1, id).catch(() => { });
             }
         }
     }
