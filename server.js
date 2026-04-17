@@ -813,12 +813,8 @@ async function callGemini(messages, maxTokens = 16384, images = []) {
         return null;
     }
     try {
-        const contents = messages
-            .filter(m => m.role !== 'system')
-            .map(m => ({
-                role: m.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: m.content || '' }]
-            }));
+        // --- CRITICAL FIX 2: Use the robust mapping function to enforce alternating roles ---
+        const contents = mapMessagesToGemini(messages);
 
         // Add images to the last user message
         if (images.length > 0 && contents.length > 0) {
@@ -938,6 +934,11 @@ function mapMessagesToGemini(messages) {
         } else {
             // Prevent 400 Bad Request from empty text strings
             parts.push({ text: m.content ? m.content : ' ' }); 
+        }
+
+        // --- CRITICAL FIX 1: Gemini requires the first message to be 'user' ---
+        if (contents.length === 0 && role === 'model') {
+            continue; // Skip the initial "Welcome" assistant message
         }
 
         // Gemini strict alternating roles check
